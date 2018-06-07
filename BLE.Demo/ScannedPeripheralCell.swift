@@ -2,64 +2,43 @@
 //  ScannedPeripheralCell.swift
 //  Test01
 //
-//  Created by Jay Bergonia on 5/6/2018.
-//  Copyright © 2018 Tektos Limited. All rights reserved.
 //
 
 import UIKit
 import CoreBluetooth
-
-protocol PeripheralCellDelegate: class {
-    func didTapConnect(_ cell: ScannedPeripheralCell, peripheral: CBPeripheral)
-    func updateViews(text: String)
-}
-
-struct ScannedDevice {
-    //var peripheral: CBPeripheral?
-    var deviceName: String
-    var deviceSignal: String?
-    var deviceServices: CBPeripheral?
-    var deviceConnect: Bool
-    var deviceRSSI = [String:String]() //Dictionary<String, String>
-    
-    init(name: String, signal: String, services: CBPeripheral, connect: Bool) {
-        self.deviceName = name
-        self.deviceSignal = signal
-        self.deviceServices = services
-        self.deviceConnect = connect
-    }
-}
-
 
 class ScannedPeripheralCell: UITableViewCell {
 
     @IBOutlet weak var deviceName: UILabel!
     @IBOutlet weak var deviceServices: UILabel!
     @IBOutlet weak var deviceSignal: UILabel!
-    @IBOutlet weak var deviceConnect: UIButton!
+    @IBOutlet weak var deviceConnect: UILabel!
+    
     
     var centralManager: CBCentralManager!
-    weak var delegate: PeripheralCellDelegate?
-    private var displayPeripheral: ScannedDevice!
+    weak var delegate: PeripheralCellDelegate!
+    private var scannedPeripheral: ScannedDevice!
+    var peripheralContainer: CBPeripheral!
     
     override func awakeFromNib() {
         super.awakeFromNib()
-        // Initialization code
     }
     
-    func ifConnectable(bool: Bool) {
-        self.deviceConnect.isHidden = !bool
+
+    func populate(name: String, deviceSignal: String, peripheral: CBPeripheral, connect: Bool) {
+        self.peripheralContainer = peripheral
+        self.deviceName.text = name
+        self.deviceSignal.text = deviceSignal + "dBm"
+        self.deviceServices.text = String("\(peripheral)")
+        self.deviceConnect.isHidden = !connect
     }
 
     override func setSelected(_ selected: Bool, animated: Bool) {
         super.setSelected(selected, animated: animated)
+        //possible transfer
+        //delegate.didTapConnect(self, peripheral: self.peripheralContainer)
+//        print("@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@ \(self.peripheralContainer) @ CellView Delegate @@@@@@@@@@@@@@@@@@@@@@@@@@@@@@")
     }
     
-    @IBAction func connectBtnPressed(_ sender: Any) {
-        self.deviceServices.text = "Now Connecting"
-        delegate?.didTapConnect(self, peripheral: displayPeripheral.deviceServices!)
-        delegate?.updateViews(text: "Connecting")
-    }
     
 }
-
