@@ -2,8 +2,6 @@
 //  ViewController.swift
 //  Test01
 //
-//  Created by Jay Bergonia on 29/5/2018.
-//  Copyright © 2018 Tektos Limited. All rights reserved.
 //
  
 import UIKit
@@ -15,16 +13,15 @@ class MainViewController: UIViewController {
     @IBOutlet weak var blueToothLabel: UILabel!
     @IBOutlet weak var tableView: UITableView!
     
-    var centralManager: CBCentralManager!
-    var isBluetoothPoweredOn: Bool = false
-    var isScanning: Bool = false
-    var scannedPeripheral: [String:String] = [:] //ReUsed
-    var keepScanning = false
-    var scannedUnits = [ScannedDevice]()
+    var peripheralVC = PeripheralViewController()
     
-    // define our scanning interval times
-    let timerPauseInterval:TimeInterval = 20.0
-    let timerScanInterval:TimeInterval = 5.0
+    var centralManager: CBCentralManager!
+    private var peripheralToPass: CBPeripheral?
+    
+    var isBluetoothPoweredOn: Bool = false
+    var scannedPeripheral: [String:String] = [:] //ReUsed
+    var scannedUnits = [ScannedDevice]() // used for connectable
+    
     
     override func viewDidLoad() {
         super.viewDidLoad()
@@ -34,25 +31,6 @@ class MainViewController: UIViewController {
         centralManager = CBCentralManager(delegate: self, queue: nil)
     }
     
-    // MARK: - NSTimer Exp
-    @objc func pauseScan() {
-        print("*** PAUSING SCAN...")
-        self.MainLabel.text = "Pausing Scanning".localized
-        _ = Timer(timeInterval: timerPauseInterval, target: self, selector: #selector(resumeScan), userInfo: nil, repeats: false)
-        centralManager.stopScan()
-    }
-    
-    @objc func resumeScan() {
-        if keepScanning {
-            // Start scanning again...
-            print("*** RESUMING SCAN!")
-            self.MainLabel.text = "Resuming Scanning".localized
-            _ = Timer(timeInterval: timerScanInterval, target: self, selector: #selector(pauseScan), userInfo: nil, repeats: false)
-            centralManager.scanForPeripherals(withServices: nil, options: nil)
-        } else {
-            self.MainLabel.text = "Checking".localized
-        }
-    }
     
     @IBAction func searchBtnPressed(_ sender: Any) {
         
@@ -63,10 +41,19 @@ class MainViewController: UIViewController {
             self.tableView.reloadData()
             centralManager.stopScan()
         } else {
-            self.scannedPeripheral.removeAll()
-            self.tableView.reloadData()
             self.MainLabel.text = "Now Scanning".localized
             centralManager.scanForPeripherals(withServices: nil, options: [CBCentralManagerScanOptionAllowDuplicatesKey: true])
+        }
+        
+    }
+    
+    override func prepare(for segue: UIStoryboardSegue, sender: Any?) {
+        if let destinationViewController = segue.destination as? PeripheralViewController{
+            print("@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@ \(self.centralManager) @@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@")
+            print("@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@ \(self.peripheralToPass!) @@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@")
+            destinationViewController.setupBLEInfo(manager: self.centralManager, peripheral: self.peripheralToPass!)
+        } else {
+            print("Ok")
         }
         
     }
@@ -79,7 +66,6 @@ class MainViewController: UIViewController {
         alert.addAction(okay)
         self.present(alert, animated: true, completion: nil)
     }
-    
     
 }
 
@@ -96,18 +82,23 @@ extension MainViewController: UITableViewDelegate, UITableViewDataSource {
         let deviceName = Array(self.scannedPeripheral.keys)[indexPath.row]
         let deviceSignal = Array(self.scannedPeripheral.values)[indexPath.row]
         
-        cell.deviceName.text = deviceName
-        cell.deviceSignal.text = deviceSignal + "dBm"
-        cell.ifConnectable(bool: deviceInfo.deviceConnect)
-        //cell.populate(element: deviceInfo)
+        cell.populate(name: deviceName, deviceSignal: deviceSignal, peripheral: deviceInfo.deviceServices, connect: deviceInfo.deviceConnect)
         
         self.MainLabel.text = String(scannedPeripheral.count) + " Devices Scanned".localized
         return cell
     }
+
+    func tableView(_ tableView: UITableView, didSelectRowAt indexPath: IndexPath) {
+        //performSegue(withIdentifier: "connectToDeviceSegue", sender: self)
+        let deviceInfo = self.scannedUnits[indexPath.row]
+        let selectedPeripheral = deviceInfo.deviceServices
+        self.peripheralToPass = selectedPeripheral
+        self.peripheralVC.setupBLEInfo(manager: self.centralManager, peripheral: self.peripheralToPass!)
+        centralManager.connect(self.peripheralToPass!, options: nil)
+        //print(self.peripheralToPass!)
+        //print("@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@ \(String(describing: self.peripheralToPass)) @@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@")
+    }
     
-//    func tableView(_ tableView: UITableView, didSelectRowAt indexPath: IndexPath) {
-//        <#code#>
-//    }
     
 }
 
@@ -119,8 +110,6 @@ extension MainViewController: CBCentralManagerDelegate {
             blueToothLabel.text = "Bluetooth ON".localized
             blueToothLabel.textColor = UIColor.green
             isBluetoothPoweredOn = true
-            keepScanning = true
-            _ = Timer(timeInterval: timerScanInterval, target: self, selector: #selector(pauseScan), userInfo: nil, repeats: false)
             break
         case .poweredOff:
             blueToothLabel.text = "Bluetooth OFF".localized
@@ -135,20 +124,12 @@ extension MainViewController: CBCentralManagerDelegate {
     
     func centralManager(_ central: CBCentralManager, didDiscover peripheral: CBPeripheral, advertisementData: [String : Any], rssi RSSI: NSNumber) {
         
-        print(advertisementData)
         let isConnectable = advertisementData[CBAdvertisementDataIsConnectable] as! Bool
-        
         if let advertisementName = advertisementData[CBAdvertisementDataLocalNameKey] as? String {
-            if self.scannedPeripheral.count <= 3 {
-                let device = ScannedDevice(name: advertisementName, signal: String(describing: RSSI), services: peripheral, connect: isConnectable)
-                self.scannedPeripheral[device.deviceName] = device.deviceSignal
-                self.scannedUnits.append(device)
-                print(device)
-                tableView.reloadData()
-            } else {
-                self.blueToothLabel.text = "Scanning Stopped".localized
-                centralManager.stopScan()
-            }
+            let device = ScannedDevice(name: advertisementName, signal: String(describing: RSSI), services: peripheral, connect: isConnectable)
+            self.scannedPeripheral[device.deviceName] = device.deviceSignal
+            self.scannedUnits.append(device)
+            tableView.reloadData()
             
         }
 
@@ -159,7 +140,8 @@ extension MainViewController: CBCentralManagerDelegate {
 extension MainViewController: CBPeripheralDelegate {
 
     func centralManager(_ central: CBCentralManager, didFailToConnect peripheral: CBPeripheral, error: Error?) {
-        print(error)
+        blueToothLabel.text = "Failed to connect"
+        blueToothLabel.textColor = UIColor.red
     }
     
     func centralManager(_ central: CBCentralManager, didConnect peripheral: CBPeripheral) {
@@ -169,26 +151,13 @@ extension MainViewController: CBPeripheralDelegate {
     
 }
 
-
-extension MainViewController: PeripheralCellDelegate {
-
-    
+extension PeripheralViewController: PeripheralCellDelegate {
     
     func didTapConnect(_ cell: ScannedPeripheralCell, peripheral: CBPeripheral) {
-        if peripheral.state != .connected {
-            self.MainLabel.text = "Now Connecting to Device"
-            peripheral.delegate = self
-            centralManager.connect(peripheral, options: nil)
-        }
-    }
-    
-    func updateViews(text: String) {
-        self.MainLabel.text = text
-        self.blueToothLabel.text = text
+        print("@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@ \(peripheral) @ Main VCDelegate @@@@@@@@@@@@@@@@@@@@@@@@@@@@@@")
     }
     
     
 }
-
 
 
